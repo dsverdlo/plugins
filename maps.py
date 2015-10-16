@@ -675,7 +675,7 @@ class maps(minqlbot.Plugin):
         # Grey area where we don't know if voting is allowed yet...
         minqlbot.console_command("callvote map {}".format(self.nextmap))
         time.sleep(1)
-        if self.is_vote_active() or self.nextmap == self.currmap:
+        if self.is_vote_active(): #or self.nextmap == self.currmap:
             self.thread.stop()
             self.debug("I could callvote the map!")
             self.currmap = self.nextmap
