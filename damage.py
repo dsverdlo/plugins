@@ -22,11 +22,11 @@ import threading
 import time
 
 # View all damages in BOT console? 1-yes, 0-no
-LIST_ALL_CONSOLE = 1
+LIST_ALL_CONSOLE = False
 # Perm lvl to (un)set this for other players
 OVERRIDE_PERM_LVL = 5
 # Length of the TOP list (max 5)
-TOP = 5
+TOP = 0
 CHANGE_TOP_PERM_LVL = 5
 # Show least dmg and most dmg of last round?
 SHOW_LAST_ROUND = True
@@ -47,12 +47,13 @@ class damage(minqlbot.Plugin):
         self.add_command("maptopdmg", self.cmd_maptopdmg, usage="[MAPNAME]") # needs perm?
         self.add_command("alltopdmg", self.cmd_alltopdmg) # needs perm?
         self.add_command("dmgcmds", self.cmd_dmg_cmds)
-        self.add_command("hc", self.cmd_set_handicap, 3, usage="[NAME [AMOUNT(0-200)]")
-        self.add_command("hcs", self.cmd_list_handicaps, 3)
-        self.add_command("wipehc", self.cmd_clear_handicaps, 3)
+        #self.add_command("hc", self.cmd_set_handicap, 3, usage="[NAME] [0-200]")
+        #self.add_command("hcs", self.cmd_list_handicaps)
+        #self.add_command(("wipehc", "wipehcs"), self.cmd_clear_handicaps, 3, usage="[NAME]")
         self.add_hook("team_switch", self.handle_team_switch)
         self.add_hook("scores", self.handle_scores)
         self.add_hook("round_end", self.handle_round_end)
+        self.add_hook("round_start", self.handle_round_start)
         self.add_hook("game_start", self.handle_game_start)
         self.add_hook("game_end", self.handle_game_end)
 
@@ -95,7 +96,7 @@ class damage(minqlbot.Plugin):
 
     def handle_game_end(self, game, score, winner):
 
-        self.msg("^7Top {} useful damages:".format(min(len(self.scores_usefull), TOP)))
+        #self.msg("^7Top {} useful damages:".format(min(len(self.scores_usefull), TOP)))
 
         strings = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th", "13th", "14th"]
 
@@ -132,11 +133,11 @@ class damage(minqlbot.Plugin):
             self.cache_completed.clear()
 
             # Append name and damage in color of team
-            say = "^2{} place^7: {} (^{}{}^7)".format(strings[i], name, tc, dmg)
+            #say = "^2{} place^7: {} (^{}{}^7)".format(strings[i], name, tc, dmg)
 
             # Say the messages with a small delay to get the order right
-            says.append(say)
-            self.delay(i*1.5, self.msg, args=(say,))
+            #says.append(say)
+            #self.delay(i*1.5, self.msg, args=(say,))
 
 ##        threading.Thread(target=self.print_top_list, args=(self, says)).start()
 ##
@@ -243,7 +244,7 @@ class damage(minqlbot.Plugin):
 
             # Store the difference for calculations after the iteration
             # Handicapped people need to have their differences recalculated
-            if self.handicaps.get(name):
+            if name in self.handicaps and s.player['hc'] == self.handicaps[name]:
                 diff = self.calculate_handicap(diff, self.handicaps[name])
             round_diffs.append([name, team, diff, bool_matches_required])
             # Add it to the snapshot to compare it to the next time.
@@ -314,7 +315,8 @@ class damage(minqlbot.Plugin):
                         if el['name'] == name and el['dmg'] == diff:
                             pos = self.top_damages.index(el)
                             #self.msg("^7Player ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the top list for this map!".format(name, diff, pos+1))
-                            personal_messages.append("^7Player ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the top list for this map!".format(name, diff, pos+1))
+                            #personal_messages.append("^7Player ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the top list for this map!".format(name, diff, pos+1))
+                            personal_messages.append("^7Holy shit! ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the maptopdmg list!".format(name, diff, pos+1))
                             break
 
             # If winning team (and completed matches required), check if this is a personal best:
@@ -355,6 +357,10 @@ class damage(minqlbot.Plugin):
         # Remind bot to update scores
         minqlbot.Plugin.scores()
 
+    def handle_round_start(self, round):
+        self.handicaps = {}
+        for p in self.players(): #
+            self.handicaps[p.clean_name.lower()] = p['hc']
 
     # Set the record to 1 in the database. If they are not in the db yet, add them
     def cmd_tellme(self, player, msg, channel):
@@ -426,11 +432,12 @@ class damage(minqlbot.Plugin):
         c = self.db_query(create)
         self.db_commit()
 
-        hiscores = "CREATE TABLE IF NOT EXISTS TopDamages ("
-        hiscores += " username TEXT NOT NULL, "
-        hiscores += " mapname TEXT NOT NULL, "
+        hiscores = "CREATE TABLE IF NOT EXISTS TD ("
+        hiscores += " user TEXT NOT NULL, "
+        hiscores += " map TEXT NOT NULL, "
         hiscores += " dmg INT NOT NULL, "
-        hiscores += " FOREIGN KEY (username) REFERENCES Players(name) ON DELETE CASCADE "
+        hiscores += " PRIMARY KEY (user, map), "
+        hiscores += " FOREIGN KEY (user) REFERENCES Players(name) ON DELETE CASCADE "
         hiscores += " );"
         c = self.db_query(hiscores)
         self.db_commit()
@@ -440,80 +447,6 @@ class damage(minqlbot.Plugin):
     def cmd_dmg_info(self, player, msg, channel):
         channel.reply("^7After rounds, the least damage of the lost team and the most damage of the winner team are shown.")
         self.delay(1, lambda: channel.reply("^7You can choose if I PM you your damage after every round by typing ^6!dmg^7 or ^6!nodmg^7."))
-
-    # List the active known handicapped players
-    def cmd_list_handicaps(self, player, msg, channel):
-        handicaps = []
-        for name in self.handicaps:
-            handicaps.append("^2{}^7-^5{}^7".format(name, self.handicaps[name]))
-        channel.reply("^7Current handicaps: ^6{}^7.".format(", ".join(handicaps)))
-
-    # Remove all the handicaps!
-    def cmd_clear_handicaps(self, player, msg, channel):
-        self.handicaps = []
-        channel.reply("^7All current handicaps cleared!")
-
-    # Handle a !hc call
-    # !hc --> get the handicap of caller
-    # !hc 50 --> set the handicap of caller
-    # !hc iou --> get the handicap of iou
-    # !hc iou 50 --> set the handicap of iou
-    #
-    def cmd_set_handicap(self, player, msg, channel):
-        if len(msg) < 2: # No args, return callers hc
-            name = player.clean_name.lower()
-            hc = self.handicaps.get(name)
-            if hc:
-                channel.reply("^7Player ^6{} ^7 is playing with handicap: ^6{}^7.".format(name, hc))
-            else:
-                channel.reply("^7Player ^6{} ^7does not have a handicap registered.".format(name))
-        elif len(msg) < 3:
-            try: # Set the handicap of the caller if an int was given
-                hc = int(msg[1])
-
-                if hc < 0 or hc > 200:
-                    return minqlbot.RET_USAGE
-
-                name = player.clean_name.lower()
-                self.handicaps[name] = hc
-                channel.reply("^7Player ^6{}^7's handicap has been set to: ^6{} ^7.".format(name, hc))
-
-            except: # Get the handicap of specified player
-
-                player_ = self.find_player(msg[1].lower())
-                if player_:
-                    name = player_.clean_name.lower()
-                else:
-                    # If we can't find the player on the server, return
-                    return channel.reply("^7No player found with the name: ^6{}^7.".format(msg[1]))
-
-                hc = self.handicaps.get(name)
-                if hc:
-                    channel.reply("^7Player ^6{} ^7is playing with a handicap of ^6{}^7.".format(name, hc))
-                else:
-                    channel.reply("^7Player ^6{} ^7 is currently not playing with a handicap.".format(name))
-        elif len(msg) < 4:
-            # Set the handicap of the caller
-
-            try:
-                hc = int(msg[2])
-
-                if hc < 0 or hc > 200:
-                    raise
-
-                player_ = self.find_player(msg[1])
-                if not player_:
-                    raise
-
-                name = player_.clean_name.lower()
-                self.handicaps[name] = hc
-                channel.reply("^7Player ^6{}^7's handicap has been set to ^6{}^7.".format(name, hc))
-
-            except:
-                # If 2nd argument is not an integer, return usage
-                return minqlbot.RET_USAGE
-        else:
-            return minqlbot.RET_USAGE
 
 
     def cmd_top_info(self, player, msg, channel):
@@ -560,7 +493,7 @@ class damage(minqlbot.Plugin):
             mapname = self.game().short_map
 
         top_dmgs = self.db_get_top_damages(mapname)
-        self.msg("^7Top damages for ^6{}^7: ^8[^7{}^8]^7.".format(mapname, self.pretty_print_dmgs(top_dmgs)))
+        self.msg("^7All-time top damages for ^6{}^7: ^8[^7{}^8]^7.".format(mapname, self.pretty_print_dmgs(top_dmgs)))
 
     # Display overall best damages:
     def cmd_alltopdmg(self, player, msg,channel):
@@ -641,7 +574,7 @@ class damage(minqlbot.Plugin):
 
     # This method gets the highest dmg of a player's top scores
     def db_get_top_damage_for_players(self, username):
-        c = self.db_query("SELECT dmg, mapname FROM TopDamages WHERE username = ? ORDER BY dmg DESC LIMIT 1",username)
+        c = self.db_query("SELECT dmg, map FROM TD WHERE user = ? ORDER BY dmg DESC LIMIT 1",username)
         row = c.fetchone()
         if not row:
             return [-1, None]
@@ -654,8 +587,8 @@ class damage(minqlbot.Plugin):
     def db_get_top_damages(self, mapname = ""):
         top_damages = []
         if mapname:
-            mapname = " WHERE mapname = '{}' ".format(mapname)
-        sql = "SELECT username, mapname, dmg FROM TopDamages{} ORDER BY dmg DESC LIMIT 10"
+            mapname = " WHERE map = '{}' ".format(mapname)
+        sql = "SELECT user, map, max(dmg) FROM TD{} GROUP BY user ORDER BY dmg DESC LIMIT 10"
         c = self.db_query(sql.format(mapname))
         row = c.fetchall()
         for r in row:
@@ -665,12 +598,12 @@ class damage(minqlbot.Plugin):
     # If an entry for (username, mapname) already exists with a LOWER dmg, UPDATE IT
     # return false if user was already registered with a higher dmg (may not be highest)
     def db_insert_top_damage(self, username, mapname, dmg):
-        sql_select = "SELECT dmg FROM TopDamages WHERE username = ? AND mapname = ?"
+        sql_select = "SELECT dmg FROM TD WHERE user = ? AND map = ?"
         c = self.db_query(sql_select, username, mapname)
         row = c.fetchone()
         if row: # record exists
             if row[0] < dmg: # old dmg < new dmg
-                sql_update = "UPDATE TopDamages SET dmg = ? WHERE username = ? AND mapname = ?"
+                sql_update = "UPDATE TD SET dmg = ? WHERE user = ? AND map = ?"
                 c = self.db_query(sql_update, dmg, username, mapname)
                 self.db_commit()
                 return True
@@ -678,23 +611,23 @@ class damage(minqlbot.Plugin):
                 # No insert needed
                 return False
         else:
-            c = self.db_query("INSERT INTO TopDamages VALUES (?, ?, ?)", username, mapname, dmg)
+            c = self.db_query("INSERT INTO TD VALUES (?, ?, ?)", username, mapname, dmg)
             self.db_commit()
             return True
 
     # remove a triple / value from the database records if it has been beat
     def db_remove_top_damage(self, username, mapname, dmg):
-        c = self.db_query("DELETE FROM TopDamages WHERE username = ? AND mapname = ? AND dmg = ?", username, mapname, dmg)
+        c = self.db_query("DELETE FROM TD WHERE user = ? AND map = ? AND dmg = ?", username, mapname, dmg)
         self.db_commit()
 
     # Remove all records of a player on a map or ALL maps
     def db_remove_player(self, username, mapname):
         if mapname != "all":
-            mapname = " AND mapname = '{}'".format(mapname)
+            mapname = " AND map = '{}'".format(mapname)
         else:
             mapname = ""
 
-        c = self.db_query("DELETE FROM TopDamages WHERE username = ? {}".format(mapname), username)
+        c = self.db_query("DELETE FROM TD WHERE user = ? {}".format(mapname), username)
         self.db_commit()
 
         self.msg("^7Player succesfully removed from specified map(s)!")
@@ -722,17 +655,30 @@ class damage(minqlbot.Plugin):
     #     - A bonus of 5/3 is applied to compensate a little for the health reduction
     #
     #     - 80 * (1.25 + 0.042 ) = 103.3 calculated damage
-    def calculate_handicap(dmg, hc):
-        # method 1 or 2
-        method = 2
+    def calculate_handicap(self, dmg, hc):
+        # method 1-3
+
+        method = 3
 
         # Method one, better understandable but more individual calculations
         if method == 1:
             handicap_correction = 100.0/(hc/2)
             handicap_bonus = 100.0/((hc/1.666))-1
-            return dmg*(handicap_correction + handicap_bonus)
+            calculated = dmg*(handicap_correction + handicap_bonus)
+            return int(round(calculated))
 
         # Method two, just reformulated the above forumlae
         # This option has less calculations but is harder to modify/understand
         elif method == 2:
-            return  dmg * 1100/3.0/hc - dmg
+            calculated =   dmg * 1100/3.0/hc - dmg
+            return int(round(calculated))
+
+        elif method == 3:
+            #self.debug("Hc: {} - Dmg: {}".format(hc, dmg))
+            try:
+                hc = int(hc)
+            except Exception as e:
+                hc = 200
+            actual_damage = 200/hc * dmg
+            handicap_bonus = 0.2 - hc/1000
+            return int(round(actual_damage+handicap_bonus*actual_damage))

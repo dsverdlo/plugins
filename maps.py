@@ -1,8 +1,3 @@
-# Update table!!  ingame console command:
-# bot py db ALTER TABLE Maps ADD active INT DEFAULT 2
-# or say:
-# !db ALTER TABLE Maps ADD active INT DEFUALT 2
-
 # minqlbot - A Quake Live server administrator bot.
 # Copyright (C) 2015 Mino <mino@minomino.org>
 
@@ -62,7 +57,7 @@ class maps(minqlbot.Plugin):
         self.add_command(("nextmap", "nextmaps"), self.cmd_nextmap)
         self.add_command("activemaps", self.cmd_activemaps, usage="regular|irregular")
         self.add_command("resetmaps", self.cmd_resetmaps, 3, usage="regular|irregular")
-        self.add_command("forceothermap", self.cmd_forcemap, 3)
+        self.add_command(("forceothermap", "forcemap"), self.cmd_forcemap, 3)
         self.add_command("forcenext", self.cmd_forcenext, 3, usage="regular|irregular")
 
         # Database Operations:
@@ -89,8 +84,8 @@ class maps(minqlbot.Plugin):
         self.skippers = []
 
         # Fill active pools with maps from database
-        self.cmd_resetmaps(None, [None, POOLS[POOL_REGULAR]], None)
-        self.cmd_resetmaps(None, [None, POOLS[POOL_IRREGULAR]], None)
+        #self.cmd_resetmaps(None, [None, POOLS[POOL_REGULAR]], None)
+        #self.cmd_resetmaps(None, [None, POOLS[POOL_IRREGULAR]], None)
 
 
     # ##########################################################################
@@ -484,8 +479,8 @@ class maps(minqlbot.Plugin):
 
         if msg[1] == "on":
             self.first_map = self.plugin_active
-            self.cmd_resetmaps(player, ['!resetmaps', POOLS[POOL_REGULAR]], channel)
-            self.cmd_resetmaps(player, ['!resetmaps', POOLS[POOL_REGULAR]], channel)
+            #self.cmd_resetmaps(player, ['!resetmaps', POOLS[POOL_REGULAR]], channel)
+            #self.cmd_resetmaps(player, ['!resetmaps', POOLS[POOL_IRREGULAR]], channel)
         self.msg("^7Maps controlling system is turned ^6{}^7.".format(msg[1]))
 
 
@@ -630,7 +625,7 @@ class maps(minqlbot.Plugin):
         return 0
 
     def getnextactive(self, pool):
-        sql = "SELECT name FROM Maps WHERE pool = ? AND active = ? ORDER BY RAND() LIMIT 1"
+        sql = "SELECT name FROM Maps WHERE pool = ? AND active = ? ORDER BY random() LIMIT 1"
         c = self.db_query(sql, pool, pool)
         row = c.fetchone()
         if row:
@@ -680,7 +675,7 @@ class maps(minqlbot.Plugin):
         # Grey area where we don't know if voting is allowed yet...
         minqlbot.console_command("callvote map {}".format(self.nextmap))
         time.sleep(1)
-        if self.is_vote_active():
+        if self.is_vote_active() or self.nextmap == self.currmap:
             self.thread.stop()
             self.debug("I could callvote the map!")
             self.currmap = self.nextmap
