@@ -29,9 +29,9 @@ OVERRIDE_PERM_LVL = 5
 TOP = 0
 CHANGE_TOP_PERM_LVL = 5
 # Show least dmg and most dmg of last round?
-SHOW_LAST_ROUND = True
+SHOW_LAST_ROUND = False
 # Amount of matches needed to be completed on server before top damages are recorded
-COMPLETED_MATCHES = 10
+COMPLETED_MATCHES = 15
 
 class damage(minqlbot.Plugin):
     def __init__(self):
@@ -50,12 +50,15 @@ class damage(minqlbot.Plugin):
         #self.add_command("hc", self.cmd_set_handicap, 3, usage="[NAME] [0-200]")
         #self.add_command("hcs", self.cmd_list_handicaps)
         #self.add_command(("wipehc", "wipehcs"), self.cmd_clear_handicaps, 3, usage="[NAME]")
+        self.add_command("cleantopdmgs", self.cmd_clean_topdamages, 5)
+        self.add_command("backuptopdmgs", self.cmd_backup_topdamages, 5)
         self.add_hook("team_switch", self.handle_team_switch)
         self.add_hook("scores", self.handle_scores)
         self.add_hook("round_end", self.handle_round_end)
         self.add_hook("round_start", self.handle_round_start)
         self.add_hook("game_start", self.handle_game_start)
         self.add_hook("game_end", self.handle_game_end)
+        self.add_hook("player_connect", self.handle_player_connect)
 
         # This will keep track of the latest scores updates
         self.scores_live = []
@@ -243,9 +246,9 @@ class damage(minqlbot.Plugin):
                 self.scores_usefull[name] = [winner, previous_usefull_damage + diff]
 
             # Store the difference for calculations after the iteration
-            # Handicapped people need to have their differences recalculated
-            if name in self.handicaps and s.player['hc'] == self.handicaps[name]:
-                diff = self.calculate_handicap(diff, self.handicaps[name])
+            # Handicapped people need to have their differences recalculated.
+            diff = self.calculate_handicap(diff, max(s.player['hc'], self.handicaps[name]))
+
             round_diffs.append([name, team, diff, bool_matches_required])
             # Add it to the snapshot to compare it to the next time.
             self.scores_snapshot[name] = [team, curr_dmg]
@@ -314,9 +317,8 @@ class damage(minqlbot.Plugin):
                     for el in self.top_damages:
                         if el['name'] == name and el['dmg'] == diff:
                             pos = self.top_damages.index(el)
-                            #self.msg("^7Player ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the top list for this map!".format(name, diff, pos+1))
-                            #personal_messages.append("^7Player ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the top list for this map!".format(name, diff, pos+1))
-                            personal_messages.append("^7Holy shit! ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the maptopdmg list!".format(name, diff, pos+1))
+                            #self.msg("^7Holy shit! ^2{}^7's damage (^3{}^7) earned position ^2{}^7 in the maptopdmg list!".format(name, diff, pos+1))
+                            personal_messages.append("^7Holy shit! ^2{}^7's damage (^1{}^7) earned position ^3{}^7 in the maptopdmg list!".format(name, diff, pos+1))
                             break
 
             # If winning team (and completed matches required), check if this is a personal best:
@@ -324,7 +326,7 @@ class damage(minqlbot.Plugin):
                 player_prev_top, mapname = self.db_get_top_damage_for_players(name)
                 if player_prev_top > 0 and  diff > player_prev_top:
                     #self.msg("^7New ^2personal^7 record for ^6{}^7: ^3{}^7 useful damage!".format(name, diff))
-                    personal_messages.append("^7New ^6personal^7 record for ^2{}^7: ^3{}^7 useful damage!".format(name, diff))
+                    personal_messages.append("^7New personal record for ^3{}^7: ^5{}^7 useful damage!".format(name, diff))
 
 
             if self.get_tell_preference(name) == 1:
@@ -361,6 +363,14 @@ class damage(minqlbot.Plugin):
         self.handicaps = {}
         for p in self.players(): #
             self.handicaps[p.clean_name.lower()] = p['hc']
+
+    def handle_player_connect(self, player):
+        # If the player is known in the database without color tags
+        pass
+        # And the player has a different name (with or with other color tags)
+
+        # Update all his database table entries
+
 
     # Set the record to 1 in the database. If they are not in the db yet, add them
     def cmd_tellme(self, player, msg, channel):
@@ -502,6 +512,35 @@ class damage(minqlbot.Plugin):
         self.msg("^8[^7{}^8]^7.".format(self.pretty_print_dmgs(tops, True)))
 ##        threading.Thread(target=self.thread_list_top, args=(self, tops)).start()
 
+    # Clean the topdamages table (only keep 10 highest records)
+    # DO NOT FUCKING TOUCH THIS SQL, I SPENT 3 HOURS ON IT
+    def cmd_clean_topdamages(self, player, msg, channel):
+        sql =  " DELETE FROM TD "
+        sql += " WHERE NOT EXISTS ( "
+        sql += "   SELECT * "
+        sql += "   FROM TD as a "
+        sql += "   WHERE ( "
+        sql += "     SELECT count(*) "
+        sql += "     FROM TD as f "
+        sql += "     WHERE f.map = a.map AND f.dmg >= a.dmg "
+        sql += "   ) <= 10 "
+        sql += "   AND TD.map = a.map AND TD.user = a.user );"
+
+
+    # Store up to 10 records per map in the backup (TopDamages table)
+    def cmd_backup_topdamages(self, player, msg, channel):
+        sql = "DELETE FROM TopDamages"
+        # execute
+
+        sql =  " INSERT INTO TopDamages (username, mapname, dmg) "
+        sql += " SELECT * "
+        sql += " FROM TD as a "
+        sql += " WHERE ( "
+        sql += "   SELECT count(*) "
+        sql += "   FROM TD as f "
+        sql += "   WHERE f.map = a.map AND f.dmg >= a.dmg "
+        sql += " ) <= 10 ; "
+
     # If a player enters a team, set his snapshot dmg to 0
     # Otherwise he could get a negative accumulation
     def handle_team_switch(self, player, old_team, new_team):
@@ -527,8 +566,8 @@ class damage(minqlbot.Plugin):
             dmg = top_damages[i]
             extra = ""
             if show_maps:
-                extra = "^8-^5{}^7".format(dmg['map'])
-            formatted.append("^7{}^8-^3{}^8-^2{}".format(i+1, dmg['name'], dmg['dmg']) + extra)
+                extra = "^8-^6{}^7".format(dmg['map'])
+            formatted.append("^3{}^8-^7{}^8-^5{}".format(i+1, dmg['name'], dmg['dmg']) + extra)
 ##            formatted.append("^7{}^8:^3{}^8(^2{}^8)".format(i+1, dmg['name'], dmg['dmg']) + extra)
         return '^8] [^7'.join(formatted)
 
@@ -553,7 +592,7 @@ class damage(minqlbot.Plugin):
         self.debug("Arrived in thread")
         for top in tops:
             i = tops.index(top)
-            cls.msg("^2{}^7: ^3{}^7 - ^2{} dmg^7 - ^5{}^7.".format(i+1, top['name'], top['dmg'], top['map']))
+            cls.msg("^3{}^7: ^7{}^7 - ^5{} dmg^7 - ^5{}^7.".format(i+1, top['name'], top['dmg'], top['map']))
             time.sleep(1)
 
     def get_tell_preference(self, name):
